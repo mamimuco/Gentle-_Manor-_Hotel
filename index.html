@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gently Manor Hotel ― 検証</title>
+<style>
+  :root{
+    --ink:#2a2620; --paper:#fbf8f1; --line:#c9bda4;
+    --blue:#1f4e79; --blue-bg:#eef4fa; --blue-bd:#b8cde3;
+    --red:#8c2f24;  --red-bg:#f7ece9;  --red-bd:#d9b3aa;
+    --sub:#6b5f4a; --faint:#9a8f7a;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:"Noto Serif JP","Hiragino Mincho ProN","Yu Mincho",serif;
+    background:var(--paper); color:var(--ink); margin:0;
+    padding:44px 20px 60px; display:flex; flex-direction:column;
+    align-items:center; min-height:100vh; -webkit-text-size-adjust:100%;
+  }
+  .brand{font-size:9px;letter-spacing:.42em;color:var(--faint);margin-bottom:22px}
+  h1{font-size:20px;letter-spacing:.2em;font-weight:600;margin:0 0 12px}
+  .lead{font-size:12.5px;color:var(--sub);letter-spacing:.06em;margin-bottom:30px}
+  input{
+    font-family:inherit;font-size:16px;padding:13px 14px;width:min(340px,88%);
+    border:1px solid var(--line);border-radius:8px;background:#fffdf8;
+    text-align:center;color:inherit;
+  }
+  input:focus{outline:none;border-color:#8c7f63}
+  button{
+    margin-top:16px;font-family:inherit;font-size:14px;letter-spacing:.16em;
+    padding:12px 34px;border:0;border-radius:8px;background:var(--ink);
+    color:#f3ece0;cursor:pointer;
+  }
+  button:active{opacity:.85}
+  button:disabled{opacity:.45;cursor:default}
+  #out{
+    margin-top:36px;width:min(340px,88%);border-radius:12px;padding:30px 20px;
+    text-align:center;display:none;border:1px solid transparent;
+  }
+  #out.show{display:block}
+  #out.blue{background:var(--blue-bg);border-color:var(--blue-bd)}
+  #out.red {background:var(--red-bg); border-color:var(--red-bd)}
+  .sym{font-size:42px;line-height:1;display:block;margin-bottom:16px}
+  .blue .sym{color:var(--blue)} .red .sym{color:var(--red)}
+  .res{font-size:16px;letter-spacing:.12em;font-weight:600;margin-bottom:14px}
+  .blue .res{color:var(--blue)} .red .res{color:var(--red)}
+  .pg{font-size:15px;letter-spacing:.08em;color:#4a4335;line-height:1.9}
+  .note{font-size:11.5px;color:var(--faint);margin-top:16px;letter-spacing:.04em}
+  #err{display:none;margin-top:24px;font-size:12px;color:var(--red);
+       text-align:center;line-height:1.8}
+</style>
+</head>
+<body>
+
+<div class="brand">GENTLY MANOR HOTEL</div>
+<h1>検 証</h1>
+<div class="lead">誰に、何を頼む？</div>
+
+<input id="ans" placeholder="〇〇に、△△を頼む" autocomplete="off" spellcheck="false">
+<br>
+<button id="go">照合する</button>
+
+<div id="out"></div>
+<div id="err">この検証ページは HTTPS でのみ動作します。</div>
+
+<script>
+/* ============================================================
+   答えの平文はここに存在しない。SHA-256 の値のみを照合する。
+   ============================================================ */
+const TABLE = {
+  "8dbf46275b0dd58fccd4b8d3a28f93a7e7cbbae4a234651e6747419a7b72bc63": "blue",
+  "9896143c5aca38f13ef12b66f717ff89dfcff91a80ddc302f5d879a65469fbd4": "blue",
+  "a4437476ba5ab8cfa80d6f117937f3831bf0370ff109d3d0b10bddd75128362a": "blue",
+  "71e78a764ccb59003220b9555dc88c4454a078695e62b4728e55f5397153aa64": "blue"
+};
+
+const BLUE_PAGE   = "27";  /* ★ 青ルートの冊子ページ番号 */
+const RED_PAGE    = "25";   /* ★ 赤ルートの冊子ページ番号 */
+const ALLOW_RETRY = true;        /* ★ false にすると誤答で確定（＝赤が終端） */
+
+/* 入力の正規化：助詞・助動詞・記号を除き、文字をソートして語順を無視 */
+const STOP = ['お願いします','おねがいします','お願い','おねがい','ください','下さい',
+  '頼んで','頼む','頼み','たのんで','たのむ','たのみ','もらって','もらう','貰って','貰う',
+  '受け取って','受け取る','受け取り','渡して','渡す','わたして','わたす','聞いて','聞く',
+  'きいて','きく','訊いて','訊く','言って','言う','いって','いう','です','ます','でした',
+  'ました','する','して','した','そして','それから','の','に','を','へ','は','が','と',
+  'で','も','や','ね','よ','か','な','だ','っ','ん'];
+const PUNCT = /[\s\u3000「」『』（）()［］\[\]｛｝{}、。，,．.!！?？・･:：;；'"“”‘’〜～~—―ー]/g;
+
+const canon = s => {
+  let t = s;
+  for (const w of STOP) t = t.split(w).join('');
+  t = t.replace(PUNCT, '');
+  return [...t].sort().join('');
+};
+
+const sha256 = async s => {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+};
+
+const out = document.getElementById('out');
+const btn = document.getElementById('go');
+const inp = document.getElementById('ans');
+
+async function judge(){
+  if (canon(inp.value) === '') { inp.focus(); return; }
+  btn.disabled = true;
+
+  let h;
+  try { h = await sha256(canon(inp.value)); }
+  catch (e) { document.getElementById('err').style.display='block'; btn.disabled=false; return; }
+
+  const hit = TABLE[h] === 'blue';
+  out.className = 'show ' + (hit ? 'blue' : 'red');
+
+  if (hit) {
+    out.innerHTML =
+      '<span class="sym">&#10048;</span>' +
+      '<div class="res">青の解毒薬 ―― これだ。</div>' +
+      '<div class="pg">青のページへ進め<br>p.' + BLUE_PAGE + '</div>';
+  } else {
+    out.innerHTML =
+      '<span class="sym">&#10006;</span>' +
+      '<div class="res">赤の解毒薬 ―― 違う。</div>' +
+      '<div class="pg">赤のページへ進め<br>p.' + RED_PAGE + '</div>' +
+      (ALLOW_RETRY ? '<div class="note">入力し直すことができます。</div>' : '');
+  }
+
+  out.scrollIntoView({behavior:'smooth', block:'nearest'});
+
+  if (hit || !ALLOW_RETRY) { inp.disabled = true; }
+  else { btn.disabled = false; inp.select(); }
+}
+
+btn.addEventListener('click', judge);
+inp.addEventListener('keydown', e => { if (e.key === 'Enter') judge(); });
+
+if (!globalThis.crypto?.subtle) {
+  document.getElementById('err').style.display = 'block';
+  btn.disabled = true;
+}
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
